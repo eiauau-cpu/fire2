@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ヘッジホッグ総研 FIREモンテカルロ試算室</title>
+<style>
+:root{
+  --paper:#F1F4F6;      /* 方眼紙の地 */
+  --grid:#DCE4E9;       /* 方眼の細線 */
+  --ink:#1C2733;        /* 墨 */
+  --ink2:#54646F;       /* 薄墨 */
+  --rule:#C4CFD7;       /* 罫線 */
+  --shu:#C0392B;        /* 朱肉 */
+  --sea:#2E6E8E;        /* 帯・中央値 */
+  --card:#FBFCFC;
+  --mincho:"Hiragino Mincho ProN","Yu Mincho","YuMincho",serif;
+  --gothic:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;
+  --mono:"SF Mono","Consolas","Menlo",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:var(--gothic);color:var(--ink);
+  background-color:var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:24px 24px;
+  line-height:1.6;font-size:14px;
+}
+header{
+  border-bottom:2px solid var(--ink);
+  background:rgba(251,252,252,.85);backdrop-filter:blur(2px);
+  padding:18px 24px 14px;
+}
+header h1{
+  font-family:var(--mincho);font-weight:600;font-size:22px;letter-spacing:.06em;
+}
+header .sub{color:var(--ink2);font-size:12px;margin-top:2px}
+header .sub b{color:var(--shu);font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:20px 16px 60px;display:grid;grid-template-columns:330px 1fr;gap:20px}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+
+/* ---- 帳票(パラメータ) ---- */
+.ledger{background:var(--card);border:1px solid var(--rule);box-shadow:2px 2px 0 rgba(28,39,51,.08)}
+.ledger fieldset{border:none;border-top:1px solid var(--rule);padding:10px 14px 12px}
+.ledger fieldset:first-child{border-top:none}
+.ledger legend{
+  font-family:var(--mincho);font-size:13px;font-weight:600;letter-spacing:.12em;
+  padding:10px 0 2px;color:var(--ink);
+}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0}
+.row label{font-size:12.5px;color:var(--ink2);flex:1}
+.row input[type=number]{
+  width:96px;padding:4px 6px;text-align:right;font-family:var(--mono);font-size:13px;
+  border:1px solid var(--rule);background:#fff;color:var(--ink);
+}
+.row input[type=number]:focus{outline:2px solid var(--sea);outline-offset:0}
+.unit{font-size:11px;color:var(--ink2);width:34px}
+.toggle{display:flex;align-items:flex-start;gap:8px;padding:5px 0}
+.toggle input{margin-top:3px;accent-color:var(--shu)}
+.toggle .t-label{font-size:12.5px}
+.toggle .t-note{font-size:11px;color:var(--ink2)}
+.btns{display:flex;gap:10px;padding:14px;border-top:1px solid var(--rule)}
+button{
+  font-family:var(--gothic);font-size:14px;cursor:pointer;padding:9px 0;flex:1;
+  border:1px solid var(--ink);background:#fff;color:var(--ink);letter-spacing:.15em;
+}
+button.run{background:var(--shu);border-color:var(--shu);color:#fff;font-weight:600}
+button.run:hover{background:#A93226}
+button:disabled{opacity:.5;cursor:wait}
+button:focus-visible{outline:2px solid var(--sea);outline-offset:2px}
+.progress{height:4px;background:var(--grid);margin:0 14px 14px;display:none}
+.progress .bar{height:100%;width:0%;background:var(--shu);transition:width .15s}
+
+/* ---- 結果 ---- */
+.results{display:flex;flex-direction:column;gap:20px}
+.card{background:var(--card);border:1px solid var(--rule);box-shadow:2px 2px 0 rgba(28,39,51,.08);padding:16px 18px;position:relative}
+.card h2{font-family:var(--mincho);font-size:15px;letter-spacing:.12em;font-weight:600;border-bottom:1px solid var(--rule);padding-bottom:6px;margin-bottom:12px}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px;white-space:nowrap}
+th,td{border:1px solid var(--rule);padding:6px 8px;text-align:right;font-family:var(--mono)}
+th{font-family:var(--gothic);background:#EDF1F3;font-weight:600;color:var(--ink2);font-size:11.5px}
+td:first-child,th:first-child{text-align:left;font-family:var(--gothic)}
+tr.sel td{background:#F3F7F9}
+td.ok{color:#1E6B3C}
+td.warn{color:var(--shu)}
+.note{font-size:11px;color:var(--ink2);margin-top:10px;line-height:1.7}
+
+/* 朱印 */
+.hanko{
+  position:absolute;top:10px;right:16px;width:86px;height:86px;
+  border:3px solid var(--shu);color:var(--shu);
+  display:none;flex-direction:column;align-items:center;justify-content:center;
+  transform:rotate(-4deg);font-family:var(--mincho);
+  background:rgba(255,255,255,.6);
+}
+.hanko .rate{font-size:20px;font-weight:700;font-family:var(--mono);letter-spacing:-.02em}
+.hanko .cap{font-size:11px;letter-spacing:.3em;margin-top:2px}
+.hanko.show{display:flex;animation:stamp .25s ease-out}
+@keyframes stamp{from{transform:rotate(-4deg) scale(1.5);opacity:0}to{transform:rotate(-4deg) scale(1);opacity:1}}
+@media(prefers-reduced-motion:reduce){.hanko.show{animation:none}}
+
+/* チャート */
+.chart-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px}
+.chart-head .seg{display:flex;border:1px solid var(--rule)}
+.chart-head .seg button{flex:none;padding:4px 10px;font-size:12px;border:none;border-right:1px solid var(--rule);letter-spacing:0;background:#fff}
+.chart-head .seg button:last-child{border-right:none}
+.chart-head .seg button.on{background:var(--ink);color:#fff}
+.chart-head label{font-size:12px;color:var(--ink2);display:flex;align-items:center;gap:4px}
+canvas{width:100%;height:340px;display:block;background:#fff;border:1px solid var(--rule)}
+.legend{display:flex;gap:16px;font-size:11px;color:var(--ink2);margin-top:6px;flex-wrap:wrap}
+.legend .sw{display:inline-block;width:14px;height:9px;margin-right:4px;vertical-align:-1px}
+.empty{color:var(--ink2);font-size:13px;padding:30px 0;text-align:center;font-family:var(--mincho);letter-spacing:.2em}
+footer{max-width:1200px;margin:0 auto;padding:0 16px 40px;font-size:11px;color:var(--ink2);line-height:1.8}
+</style>
+</head>
+<body>
+<header>
+  <h1>FIREモンテカルロ試算室</h1>
+  <div class="sub">ヘッジホッグ総合研究所・家計試算課 ｜ 金額は<b>実質・万円</b>単位 ｜ 起点 2026年7月(t=0)・40年(480ヶ月) ｜ 4案は同一乱数系列で比較</div>
+</header>
+
+<div class="wrap">
+  <!-- ============ 帳票 ============ -->
+  <div class="ledger">
+    <fieldset><legend>初期資産</legend>
+      <div class="row"><label for="risk0">リスク資産(投信+株式+DC)</label><input type="number" id="risk0" step="1"><span class="unit">万円</span></div>
+      <div class="row"><label for="cash0">現金等</label><input type="number" id="cash0" step="1"><span class="unit">万円</span></div>
+    </fieldset>
+    <fieldset><legend>リターン(GBM)</legend>
+      <div class="row"><label for="mu">幾何平均(年率)</label><input type="number" id="mu" step="0.5"><span class="unit">%</span></div>
+      <div class="row"><label for="sigma">標準偏差(年率)</label><input type="number" id="sigma" step="0.5"><span class="unit">%</span></div>
+    </fieldset>
+    <fieldset><legend>生活費・ガードレール</legend>
+      <div class="row"><label for="wd0">初年度取り崩し(年)</label><input type="number" id="wd0" step="6"><span class="unit">万円</span></div>
+      <div class="row"><label for="cap">上限(年)</label><input type="number" id="cap" step="10"><span class="unit">万円</span></div>
+      <div class="row"><label for="floor">下限・死守(年)</label><input type="number" id="floor" step="10"><span class="unit">万円</span></div>
+      <div class="row"><label for="step">年額変更幅</label><input type="number" id="step" step="10"><span class="unit">万円</span></div>
+      <div class="row"><label for="thLo">増額しきい値(取り崩し率)</label><input type="number" id="thLo" step="0.5"><span class="unit">%</span></div>
+      <div class="row"><label for="thHi">減額しきい値(取り崩し率)</label><input type="number" id="thHi" step="0.5"><span class="unit">%</span></div>
+      <div class="row"><label for="sjMax">妻バイト上限(年)</label><input type="number" id="sjMax" step="10"><span class="unit">万円</span></div>
+    </fieldset>
+    <fieldset><legend>収入・現金管理</legend>
+      <div class="row"><label for="contrib">就労中積立(月)</label><input type="number" id="contrib" step="5"><span class="unit">万円</span></div>
+      <div class="row"><label for="sev">退職金</label><input type="number" id="sev" step="100"><span class="unit">万円</span></div>
+      <div class="row"><label for="penM">年金(月・夫婦計)</label><input type="number" id="penM" step="1"><span class="unit">万円</span></div>
+      <div class="row"><label for="penAge">年金開始年齢</label><input type="number" id="penAge" step="1"><span class="unit">歳</span></div>
+      <div class="row"><label for="bufHi">現金バッファ上限</label><input type="number" id="bufHi" step="100"><span class="unit">万円</span></div>
+      <div class="row"><label for="bufLo">現金バッファ下限</label><input type="number" id="bufLo" step="100"><span class="unit">万円</span></div>
+      <div class="row"><label for="bufMin">緊急補充ライン</label><input type="number" id="bufMin" step="100"><span class="unit">万円</span></div>
+    </fieldset>
+    <fieldset><legend>運用ルール</legend>
+      <div class="toggle"><input type="checkbox" id="ruleA" checked>
+        <div><div class="t-label">A: 支払い源ルール</div>
+        <div class="t-note">前年のリスク資産リターンがマイナスの年は生活費を現金から支払う(緊急ラインで売却再開)</div></div></div>
+      <div class="toggle"><input type="checkbox" id="ruleB">
+        <div><div class="t-label">B: バイト先制発動</div>
+        <div class="t-note">取り崩し率が減額しきい値を超えた年は、床到達前でもバイトを上限まで発動(夫婦の運用メモのコード化)</div></div></div>
+    </fieldset>
+    <fieldset><legend>実験設定</legend>
+      <div class="row"><label for="seed">乱数シード</label><input type="number" id="seed" step="1"><span class="unit"></span></div>
+      <div class="row"><label for="trials">試行回数</label><input type="number" id="trials" step="1000"><span class="unit">回</span></div>
+    </fieldset>
+    <div class="btns">
+      <button class="run" id="btnRun">再 計 算</button>
+      <button id="btnReset">初期値</button>
+    </div>
+    <div class="progress" id="prog"><div class="bar" id="progBar"></div></div>
+  </div>
+
+  <!-- ============ 結果 ============ -->
+  <div class="results">
+    <div class="card">
+      <h2>結果表 ─ 退職タイミング4案</h2>
+      <div class="hanko" id="hanko"><div class="rate" id="hankoRate">—</div><div class="cap">検算済</div></div>
+      <div class="tablewrap"><table id="tbl">
+        <thead><tr>
+          <th>退職タイミング</th><th>退職時<br>中央値</th><th>40年後<br>5%</th><th>40年後<br>中央値</th><th>40年後<br>95%</th>
+          <th>成功率</th><th>下限<br>経験</th><th>上限<br>経験</th><th>両方<br>未経験</th><th>平均<br>バイト年</th>
+        </tr></thead>
+        <tbody id="tbody"><tr><td colspan="10" class="empty">未 計 算 ─ 「再計算」で試行を開始</td></tr></tbody>
+      </table></div>
+      <div class="note">成功=40年間、総資産が0を下回らないこと。破綻試行は以後0固定。下限経験=取り崩し目標が540未満となりバイト/現金補填が発動した年を一度でも持つ試行。上限経験=目標が上限に到達した試行。</div>
+    </div>
+
+    <div class="card">
+      <h2>資産推移(分位ファン)</h2>
+      <div class="chart-head">
+        <div class="seg" id="scenSeg"></div>
+        <label><input type="checkbox" id="logScale" checked> 対数スケール</label>
+      </div>
+      <canvas id="chart" width="1600" height="680"></canvas>
+      <div class="legend">
+        <span><span class="sw" style="background:#D8E6EE"></span>5〜95%分位</span>
+        <span><span class="sw" style="background:#A9C8D8"></span>25〜75%分位</span>
+        <span><span class="sw" style="background:#2E6E8E;height:3px"></span>中央値</span>
+        <span>横軸=起点(2026年7月)からの経過年</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+【モデル外の注記】税・社会保険料は生活費の内数として抽象化。NISA・基礎控除ハーベスト・退職金2年生活は税務レイヤーの運用でありここには含めない。年金は夫婦の加入実績+マイクロ法人継続を前提とした実質額。判定指標(支払い源・バッファ補充)はいずれも基準価額ベースの年次リターン(入出金の影響を除く)に統一。<br>
+ヘッジホッグ総合研究所 家計試算課 ─ 本試算は意思決定の参考情報であり、将来の成果を保証しない。
+</footer>
+
+<script>
+"use strict";
+/* ============ 既定値(2026年7月版・確定前提) ============ */
+const DEF = {
+  risk0: 14261.7, cash0: 1339.6,
+  mu: 7, sigma: 18,
+  wd0: 624, cap: 780, floor: 540, step: 30, thLo: 3, thHi: 6, sjMax: 120,
+  contrib: 145, sev: 2200, penM: 25, penAge: 65,
+  bufHi: 1200, bufLo: 1000, bufMin: 800,
+  seed: 20260702, trials: 10000,
+  ruleA: true, ruleB: false
+};
+const SCEN = [
+  {name:"即FIRE(2026/7)", ev:0},
+  {name:"2026年12月末退職", ev:6},
+  {name:"2027年6月1日退職", ev:11},
+  {name:"2027年12月末退職", ev:18},
+];
+const T = 480, YEARS = 40;
+const $ = id => document.getElementById(id);
+const fmt = x => Math.round(x).toLocaleString("ja-JP");
+
+function readParams(){
+  const v = id => parseFloat($(id).value);
+  return {
+    risk0:v("risk0"), cash0:v("cash0"),
+    muM: Math.log(1+v("mu")/100)/12, sigM: v("sigma")/100/Math.sqrt(12),
+    wd0:v("wd0"), cap:v("cap"), floor:v("floor"), step:v("step"),
+    thLo:v("thLo")/100, thHi:v("thHi")/100, sjMax:v("sjMax"),
+    contrib:v("contrib"), sev:v("sev"), penM:v("penM"),
+    penT:(1987 + Math.round(v("penAge")) - 2026)*12 + 1,   // 8月生:年齢到達月の翌月から
+    bufHi:v("bufHi"), bufLo:v("bufLo"), bufMin:v("bufMin"),
+    seed:Math.round(v("seed")), trials:Math.min(50000, Math.max(100, Math.round(v("trials")))),
+    ruleA:$("ruleA").checked, ruleB:$("ruleB").checked
+  };
+}
+function setDefaults(){
+  for(const k of ["risk0","cash0","mu","sigma","wd0","cap","floor","step","thLo","thHi","sjMax","contrib","sev","penM","penAge","bufHi","bufLo","bufMin","seed","trials"])
+    $(k).value = DEF[k] ?? {mu:7,sigma:18,penAge:65}[k];
+  $("ruleA").checked = DEF.ruleA; $("ruleB").checked = DEF.ruleB;
+}
+
+/* ============ 乱数(mulberry32 + Box-Muller) ============ */
+function makeRng(seed){
+  let a = seed >>> 0;
+  const u = () => { a|=0; a = a+0x6D2B79F5|0; let t = Math.imul(a^a>>>15,1|a);
+    t = t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+  let spare = null;
+  return () => {
+    if(spare!==null){const s=spare; spare=null; return s;}
+    let u1=0,u2=0; do{u1=u()}while(u1<=1e-12); u2=u();
+    const r=Math.sqrt(-2*Math.log(u1)), th=2*Math.PI*u2;
+    spare = r*Math.sin(th); return r*Math.cos(th);
+  };
+}
+
+/* ============ シミュレーション本体(1シナリオ) ============ */
+async function simulate(P, ev, onProgress){
+  const N = P.trials;
+  const rng = makeRng(P.seed);            // 同一シードで系列共通化
+  const risk = new Float64Array(N).fill(P.risk0);
+  const cash = new Float64Array(N).fill(P.cash0);
+  const target = new Float64Array(N).fill(P.wd0);
+  const sjM = new Float64Array(N), csM = new Float64Array(N);
+  const ann = new Float64Array(N).fill(1);
+  const prev = new Float64Array(N);
+  const alive = new Uint8Array(N).fill(1);
+  const payCash = new Uint8Array(N);      // ルールA: 当年は現金から払うフラグ
+  const everFl = new Uint8Array(N), everCap = new Uint8Array(N);
+  const sjYears = new Float64Array(N);
+  const retAssets = new Float64Array(N);
+  const yearly = new Float32Array(N*(YEARS+1));
+  for(let i=0;i<N;i++){ prev[i]=P.risk0+P.cash0; yearly[i*(YEARS+1)]=P.risk0+P.cash0; }
+  let retired = (ev===0);
+  if(retired){ for(let i=0;i<N;i++){ cash[i]+=P.sev; retAssets[i]=risk[i]+cash[i]; prev[i]=retAssets[i]; yearly[i*(YEARS+1)]=retAssets[i]; } }
+
+  for(let t=0;t<T;t++){
+    for(let i=0;i<N;i++){
+      const g = Math.exp(P.muM + P.sigM*rng());   // 死亡試行も乱数を消費(系列共通化)
+      if(!alive[i]) continue;
+      risk[i]*=g; ann[i]*=g;
+    }
+    if(!retired && t===ev){
+      retired = true;
+      for(let i=0;i<N;i++) if(alive[i]){ cash[i]+=P.sev; retAssets[i]=risk[i]+cash[i]; }
+    }
+    if(t<ev){
+      for(let i=0;i<N;i++) if(alive[i]) risk[i]+=P.contrib;
+    } else {
+      for(let i=0;i<N;i++){
+        if(!alive[i]) continue;
+        const wd = target[i]/12;
+        let rem = wd;
+        if(P.ruleA && payCash[i]){                       // 下落翌年:現金から(緊急ラインまで)
+          const fc = Math.min(Math.max(cash[i]-P.bufMin,0), rem);
+          cash[i]-=fc; rem-=fc;
+        }
+        const fr = Math.min(risk[i], rem);
+        risk[i]-=fr; cash[i]-=(rem-fr);
+        cash[i]+=sjM[i]-csM[i];
+      }
+    }
+    if(t>=P.penT) for(let i=0;i<N;i++) if(alive[i]) cash[i]+=P.penM;
+
+    if(t%12===5){                                        // 年末処理(12月)
+      for(let i=0;i<N;i++){
+        if(!alive[i]) continue;
+        if(retired){
+          const rate = target[i]/Math.max(prev[i],1e-9);
+          if(rate<P.thLo) target[i]+=P.step; else if(rate>P.thHi) target[i]-=P.step;
+          if(target[i]>P.cap) target[i]=P.cap;
+          const short = Math.max(P.floor-target[i],0);
+          let sj = Math.min(short,P.sjMax);
+          if(P.ruleB && rate>P.thHi) sj = P.sjMax;       // 先制発動
+          const cs = Math.max(short-sj,0);
+          sjM[i]=sj/12; csM[i]=cs/12;
+          if(short>0) everFl[i]=1;
+          if(sj>0) sjYears[i]++;
+          if(target[i]>=P.cap) everCap[i]=1;
+        }
+        payCash[i] = (P.ruleA && retired && ann[i]<1) ? 1 : 0;   // 翌年の支払い源
+        const ex = Math.max(cash[i]-P.bufHi,0);          // バッファ・リバランス
+        risk[i]+=ex; cash[i]-=ex;
+        let deficit = 0;
+        if(cash[i]<P.bufLo && ann[i]>1) deficit = P.bufLo-cash[i];
+        else if(cash[i]<P.bufMin) deficit = P.bufMin-cash[i];
+        const mv = Math.min(risk[i], Math.max(deficit,0));
+        risk[i]-=mv; cash[i]+=mv;
+        prev[i]=risk[i]+cash[i]; ann[i]=1;
+      }
+    }
+    for(let i=0;i<N;i++){
+      if(alive[i] && risk[i]+cash[i]<0){ alive[i]=0; risk[i]=0; cash[i]=0; }
+    }
+    if((t+1)%12===0){
+      const y=(t+1)/12;
+      for(let i=0;i<N;i++) yearly[i*(YEARS+1)+y]=risk[i]+cash[i];
+      if(y%4===0){ onProgress(y/YEARS); await new Promise(r=>setTimeout(r,0)); }
+    }
+  }
+  /* 集計 */
+  const finals = new Float64Array(N);
+  for(let i=0;i<N;i++) finals[i]=risk[i]+cash[i];
+  const pct=(arr,p)=>{const s=Float64Array.from(arr).sort();const k=(s.length-1)*p;
+    const lo=Math.floor(k),hi=Math.ceil(k);return s[lo]+(s[hi]-s[lo])*(k-lo);};
+  let succ=0,fl=0,cp=0,nei=0,sjT=0;
+  for(let i=0;i<N;i++){ succ+=alive[i]; fl+=everFl[i]; cp+=everCap[i];
+    if(!everFl[i]&&!everCap[i])nei++; sjT+=sjYears[i]; }
+  const fan=[];                                          // 年次分位
+  for(let y=0;y<=YEARS;y++){
+    const col=new Float64Array(N);
+    for(let i=0;i<N;i++) col[i]=yearly[i*(YEARS+1)+y];
+    fan.push({p5:pct(col,.05),p25:pct(col,.25),p50:pct(col,.5),p75:pct(col,.75),p95:pct(col,.95)});
+  }
+  return {
+    retMed:pct(retAssets,.5), p5:pct(finals,.05), med:pct(finals,.5), p95:pct(finals,.95),
+    succ:succ/N*100, fl:fl/N*100, cap:cp/N*100, nei:nei/N*100, sjAvg:sjT/N, fan
+  };
+}
+
+/* ============ 実行制御 ============ */
+let RESULTS=null, SEL=2;                                 // 既定選択=2027年6月案
+async function runAll(){
+  const P = readParams();
+  $("btnRun").disabled=true; $("prog").style.display="block"; $("hanko").classList.remove("show");
+  $("tbody").innerHTML=`<tr><td colspan="10" class="empty">計 算 中 …</td></tr>`;
+  const res=[];
+  for(let s=0;s<SCEN.length;s++){
+    res.push(await simulate(P, SCEN[s].ev,
+      f=>{$("progBar").style.width=((s+f)/SCEN.length*100)+"%";}));
+  }
+  RESULTS=res;
+  renderTable(); drawChart();
+  const r=res[SEL];
+  $("hankoRate").textContent=r.succ.toFixed(r.succ>=99.995?1:2)+"%";
+  $("hanko").classList.add("show");
+  $("btnRun").disabled=false; $("prog").style.display="none"; $("progBar").style.width="0%";
+}
+function renderTable(){
+  $("tbody").innerHTML = RESULTS.map((r,i)=>`
+    <tr class="${i===SEL?"sel":""}" data-i="${i}">
+      <td>${SCEN[i].name}</td><td>${fmt(r.retMed)}</td>
+      <td>${fmt(r.p5)}</td><td>${fmt(r.med)}</td><td>${fmt(r.p95)}</td>
+      <td class="${r.succ>=99?"ok":"warn"}">${r.succ.toFixed(2)}%</td>
+      <td>${r.fl.toFixed(1)}%</td><td>${r.cap.toFixed(1)}%</td>
+      <td>${r.nei.toFixed(1)}%</td><td>${r.sjAvg.toFixed(1)}年</td>
+    </tr>`).join("");
+  document.querySelectorAll("#tbody tr").forEach(tr=>{
+    tr.addEventListener("click",()=>{SEL=+tr.dataset.i; syncSel();});
+  });
+}
+function syncSel(){
+  if(RESULTS){ renderTable(); drawChart();
+    const r=RESULTS[SEL];
+    $("hankoRate").textContent=r.succ.toFixed(r.succ>=99.995?1:2)+"%";
+  }
+  document.querySelectorAll("#scenSeg button").forEach((b,i)=>b.classList.toggle("on",i===SEL));
+}
+
+/* ============ チャート ============ */
+function drawChart(){
+  const cv=$("chart"), ctx=cv.getContext("2d");
+  const W=cv.width, H=cv.height, mL=110, mR=30, mT=20, mB=50;
+  ctx.clearRect(0,0,W,H); ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+  if(!RESULTS){return;}
+  const fan=RESULTS[SEL].fan, log=$("logScale").checked;
+  const FLOORV=100;                                       // 対数表示の下駄(100万円)
+  let vmax=0,vmin=Infinity;
+  fan.forEach(f=>{vmax=Math.max(vmax,f.p95);vmin=Math.min(vmin,Math.max(f.p5,FLOORV));});
+  vmax*=1.1;
+  const yOf = v=>{
+    const vv=Math.max(v,log?FLOORV:0);
+    if(log){const a=Math.log10(FLOORV),b=Math.log10(vmax);
+      return mT+(H-mT-mB)*(1-(Math.log10(vv)-a)/(b-a));}
+    return mT+(H-mT-mB)*(1-vv/vmax);
+  };
+  const xOf = y=> mL+(W-mL-mR)*y/YEARS;
+  /* 目盛 */
+  ctx.strokeStyle="#E3E9ED"; ctx.fillStyle="#54646F";
+  ctx.font="20px 'SF Mono',Consolas,monospace"; ctx.textAlign="right";
+  const ticks = log ? [100,1000,10000,100000,1000000].filter(v=>v<=vmax*1.01)
+                    : Array.from({length:6},(_,i)=>vmax/5*i);
+  ticks.forEach(v=>{const y=yOf(v);
+    ctx.beginPath();ctx.moveTo(mL,y);ctx.lineTo(W-mR,y);ctx.stroke();
+    ctx.fillText(v>=10000?(v/10000)+"億":fmt(v),mL-8,y+7);});
+  ctx.textAlign="center";
+  for(let y=0;y<=YEARS;y+=5){const x=xOf(y);
+    ctx.beginPath();ctx.moveTo(x,mT);ctx.lineTo(x,H-mB);ctx.stroke();
+    ctx.fillText(y+"年",x,H-mB+28);}
+  /* 帯 */
+  const band=(loK,hiK,color)=>{
+    ctx.beginPath();
+    fan.forEach((f,y)=>{const x=xOf(y),yy=yOf(f[hiK]); y===0?ctx.moveTo(x,yy):ctx.lineTo(x,yy);});
+    for(let y=YEARS;y>=0;y--) ctx.lineTo(xOf(y),yOf(fan[y][loK]));
+    ctx.closePath(); ctx.fillStyle=color; ctx.fill();
+  };
+  band("p5","p95","#D8E6EE"); band("p25","p75","#A9C8D8");
+  ctx.beginPath(); ctx.strokeStyle="#2E6E8E"; ctx.lineWidth=4;
+  fan.forEach((f,y)=>{const x=xOf(y),yy=yOf(f.p50); y===0?ctx.moveTo(x,yy):ctx.lineTo(x,yy);});
+  ctx.stroke(); ctx.lineWidth=1;
+  /* 退職マーカー */
+  const evY=SCEN[SEL].ev/12;
+  ctx.strokeStyle="#C0392B"; ctx.setLineDash([6,4]);
+  ctx.beginPath();ctx.moveTo(xOf(evY),mT);ctx.lineTo(xOf(evY),H-mB);ctx.stroke();
+  ctx.setLineDash([]); ctx.fillStyle="#C0392B"; ctx.textAlign="left";
+  ctx.fillText("退職",xOf(evY)+6,mT+22);
+}
+
+/* ============ 初期化 ============ */
+SCEN.forEach((s,i)=>{
+  const b=document.createElement("button");
+  b.textContent=s.name.replace(/退職|末/g,"");
+  b.addEventListener("click",()=>{SEL=i;syncSel();});
+  $("scenSeg").appendChild(b);
+});
+$("logScale").addEventListener("change",drawChart);
+$("btnRun").addEventListener("click",runAll);
+$("btnReset").addEventListener("click",()=>{setDefaults();});
+setDefaults(); syncSel();
+</script>
+</body>
+</html>
